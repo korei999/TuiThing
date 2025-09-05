@@ -15,8 +15,6 @@ struct Window : platform::ansi::Win
 void
 Window::update()
 {
-    updateBoilerplate();
-
     m_textBuff.clean();
 
     using STYLE = platform::ansi::TEXT_BUFF_STYLE;
@@ -24,7 +22,7 @@ Window::update()
     constexpr StringView svHello = "HELLO TUI";
     m_textBuff.string(
         (m_termSize.width-svHello.size()) / 2,
-        (m_termSize.height-1) / 2,
+        (m_termSize.height - 1) / 2,
         STYLE::YELLOW | STYLE::BOLD | STYLE::ITALIC | STYLE::BLINK,
         svHello
     );
@@ -74,7 +72,7 @@ go()
 
     while (pWin->m_bRunning)
     {
-        pWin->update();
+        pWin->redraw();
         pWin->procEvents();
         arena.reset();
     }

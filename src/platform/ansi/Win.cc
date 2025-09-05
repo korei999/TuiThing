@@ -29,7 +29,7 @@ Win::enableRawMode()
 }
 
 void
-Win::updateBoilerplate()
+Win::resizeHandler()
 {
     if (g_bSigResize)
     {
@@ -38,7 +38,19 @@ Win::updateBoilerplate()
         m_textBuff.m_bResize = true;
         m_bClear = true;
 
-        m_termSize = getTermSize();
+        TermSize termSize = getTermSize();
+        if (termSize.width == -1)
+        {
+            LogError{"termSize.width: {}, (setting to 0)", termSize.width};
+            termSize.width = 0;
+        }
+        if (termSize.height == -1)
+        {
+            LogError{"termSize.height: {}, (setting to 0)", termSize.height};
+            termSize.height = 0;
+        }
+
+        m_termSize = termSize;
         m_textBuff.resize(m_termSize.width, m_termSize.height);
         LogInfo{"resize: {}\n", m_termSize};
     }
@@ -86,6 +98,13 @@ Win::destroy()
     m_textBuff.destroy();
 
     LogDebug("ansi::WinDestroy()\n");
+}
+
+void
+Win::redraw()
+{
+    resizeHandler();
+    update();
 }
 
 void

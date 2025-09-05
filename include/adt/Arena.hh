@@ -122,7 +122,7 @@ struct Arena : IArena
     isize memoryUsed() noexcept;
 
 protected:
-    void runDeleters() noexcept;
+    ADT_NO_UB void runDeleters() noexcept; /* Type casting function pointers here. */
     void growIfNeeded(isize newOff);
     void commit(void* p, isize size);
     void decommit(void* p, isize size);
@@ -316,7 +316,6 @@ Arena::resetToFirstPage()
     runDeleters();
 
     const isize pageSize = getPageSize();
-    [[maybe_unused]] int err = 0;
 
     if (m_commited > pageSize)
         decommit((u8*)m_pData + pageSize, m_commited - pageSize);

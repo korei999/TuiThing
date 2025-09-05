@@ -33,14 +33,18 @@ struct IWindow
 
     virtual bool start(adt::Arena* pArena) = 0;
     virtual void destroy() = 0;
-    virtual void update() = 0;
+    virtual void redraw() = 0;
     virtual void procEvents() = 0;
+
+protected:
+    virtual void update() = 0;
 };
 
 struct DummyWindow : IWindow
 {
     virtual bool start(adt::Arena*) final { return true; };
     virtual void destroy() final { };
+    virtual void redraw() final {};
     virtual void update() final {};
     virtual void procEvents() final {};
 };

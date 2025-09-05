@@ -63,12 +63,13 @@ struct Win : public IWindow
 public:
     virtual bool start(adt::Arena* pArena) override;
     virtual void destroy() override;
-    virtual void update() override;
+    virtual void redraw() override;
     virtual void procEvents() override;
 
     /* */
 
 protected:
+    virtual void update() override;
     void disableRawMode() noexcept(false); /* RuntimeException */
     void enableRawMode() noexcept(false); /* RuntimeException */
 
@@ -76,7 +77,7 @@ protected:
     void procInput();
     /* */
 
-    void updateBoilerplate();
+    void resizeHandler();
 
     friend void sigwinchHandler(int sig);
 
