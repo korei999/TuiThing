@@ -8,7 +8,7 @@ namespace adt
 
 struct ArgvParser
 {
-    enum class RESULT : u8 { GOOD, FAILED, QUIT_NICELY, QUIT_BADLY, SHOW_EXTRA, SHOW_USAGE, SHOW_ALL_USAGE };
+    enum class RESULT : u8 { GOOD, FAILED, QUIT_NICELY, QUIT_BADLY, SHOW_USAGE, SHOW_ALL_USAGE };
 
     template<typename STRING>
     struct Arg
@@ -17,7 +17,6 @@ struct ArgvParser
         STRING sOneDash {}; /* May be empty. */
         STRING sTwoDashes {}; /* May be empty (but not both). */
         STRING sUsage {};
-        STRING sExtra {};
         RESULT (*pfn)(
             ArgvParser* pSelf,
             void* pAny,
@@ -58,14 +57,21 @@ struct ArgvParser
     void printFullUsage(IAllocator* pAlloc);
 
 protected:
-    Pair<RESULT, bool /* bIncArgc */> parseArg(isize i, const StringView svKey);
+    Pair<RESULT, bool /* bIncArgc */> parseArg(isize i, bool bTwoDash, const StringView svKey);
 };
 
 inline
-ArgvParser::ArgvParser(IAllocator* pAlloc, FILE* pFile, const StringView svUsage, int argc, char** argv, std::initializer_list<Arg<StringView>> lParsers)
+ArgvParser::ArgvParser(
+    IAllocator* pAlloc,
+    FILE* pFile,
+    const StringView svUsage,
+    int argc,
+    char** argv,
+    std::initializer_list<Arg<StringView>> lParsers
+)
     : m_pAlloc{pAlloc},
       m_pFile{pFile},
-      m_vArgParsers{pAlloc, argc},
+      m_vArgParsers{pAlloc, (isize)lParsers.size()},
       m_mStringToArgI{pAlloc, argc},
       m_sUsage{pAlloc, svUsage},
       m_argc{argc},
@@ -73,7 +79,6 @@ ArgvParser::ArgvParser(IAllocator* pAlloc, FILE* pFile, const StringView svUsage
 {
     if (argc > 0) m_sFirst = {pAlloc, argv[0]};
 
-    m_vArgParsers.setCap(m_pAlloc, lParsers.size());
     for (auto& e : lParsers)
     {
         ADT_ASSERT(!e.sOneDash.empty() || !e.sTwoDashes.empty(),
@@ -86,7 +91,6 @@ ArgvParser::ArgvParser(IAllocator* pAlloc, FILE* pFile, const StringView svUsage
             .sOneDash = {m_pAlloc, e.sOneDash},
             .sTwoDashes = {m_pAlloc, e.sTwoDashes},
             .sUsage = {m_pAlloc, e.sUsage},
-            .sExtra = {m_pAlloc, e.sExtra},
             .pfn = e.pfn
         });
 
@@ -121,10 +125,18 @@ ArgvParser::parse()
     {
         const StringView svArg = m_argv[i];
 
-        if (svArg.beginsWith("--"))
+        const bool bTwoDash = svArg.beginsWith("--");
+        const bool bOneDash = svArg.beginsWith("-");
+        const bool bHasEquals = svArg.contains('=');
+
+        if (bTwoDash || (bOneDash && bHasEquals))
         {
-            const StringView svTwoDash = svArg.subString(2, svArg.size() - 2);
-            auto [eResult, bInc] = parseArg(i, svTwoDash);
+            const StringView svRealArg = [&] {
+                if (bTwoDash) return svArg.subString(2);
+                else return svArg.subString(1);
+            }();
+
+            auto [eResult, bInc] = parseArg(i, true, svRealArg);
             if (eResult != RESULT::GOOD)
             {
                 eFinalResult = eResult;
@@ -132,20 +144,20 @@ ArgvParser::parse()
             }
             if (bInc) ++i;
         }
-        else if (svArg.beginsWith("-"))
+        else if (bOneDash)
         {
-            const StringView svKey = svArg.subString(1, svArg.size() - 1);
+            const StringView svKey = svArg.subString(1);
                 
             for (const char& rChar : svKey)
             {
-                auto [eResult, bInc] = parseArg(i, Span<const char>{&rChar, 1});
+                auto [eResult, bInc] = parseArg(i, false, Span<const char>{&rChar, 1});
                 eFinalResult = eResult;
 
                 if (bInc)
                 {
                     if (svKey.size() != 1)
                     {
-                        print::toFILE(m_pFile, "no value after '{}' but its used in a pack\n", rChar);
+                        print::toFILE(m_pFile, "'{}' expects value but it was used in a pack\n", rChar);
                         eFinalResult = RESULT::QUIT_BADLY;
                         goto done;
                     }
@@ -181,20 +193,25 @@ ArgvParser::printFullUsage(IAllocator* pAlloc)
             p.sOneDash ? "-" : "", p.sOneDash,
             p.sOneDash && p.sTwoDashes ? ", " : "",
             p.sTwoDashes ? "--" : "", p.sTwoDashes,
-            p.bNeedsValue ? " [VALUE]" : "",
+            p.bNeedsValue ? "=[value]" : "",
             p.sUsage
         );
     }
 }
 
 inline Pair<ArgvParser::RESULT, bool>
-ArgvParser::parseArg(isize i, const StringView svKey)
+ArgvParser::parseArg(isize i, bool bTwoDash, const StringView svKey)
 {
-    MapResult res = m_mStringToArgI.search(svKey);
+    const isize equalsI = svKey.charAt('=');
+    bool bInc = false;
+    const StringView svRealKey = [&] {
+        return (equalsI == -1 ? svKey : svKey.subString(0, equalsI));
+    }();
+    MapResult<StringView, isize> res = m_mStringToArgI.search(svRealKey);
 
     if (!res)
     {
-        print::toFILE(m_pFile, "unknown argument key: '{}'\n", svKey);
+        print::toFILE(m_pAlloc, m_pFile, "unknown argument key: '{}'\n", svRealKey);
         return {RESULT::FAILED, false};
     }
 
@@ -204,19 +221,59 @@ ArgvParser::parseArg(isize i, const StringView svKey)
 
     if (parser.bNeedsValue)
     {
-        if (i + 1 >= m_argc)
+        if (bTwoDash)
         {
-            print::toFILE(m_pFile, "no value after '{}'\n", svKey);
-            eResult = RESULT::QUIT_BADLY;
-            goto done;
-        }
+            if (equalsI == -1)
+            {
+                print::toFILE(m_pAlloc, m_pFile, "no '=' sign after '{}'\n", svRealKey);
+                eResult = RESULT::QUIT_BADLY;
+                goto done;
+            }
+            else
+            {
+                if ((svKey.size() - (equalsI + 1)) <= 0)
+                {
+                    print::toFILE(m_pAlloc, m_pFile, "no value after '{}'\n", svKey);
+                    eResult = RESULT::QUIT_BADLY;
+                    goto done;
+                }
 
-        const StringView svVal = m_argv[i + 1];
-        eResult = parser.pfn(this, parser.pAnyData, svKey, svVal);
+                const StringView svVal = svKey.subString(equalsI + 1);
+                eResult = parser.pfn(this, parser.pAnyData, svRealKey, svVal);
+            }
+        }
+        else
+        {
+            if (equalsI == -1 && i + 1 >= m_argc)
+            {
+                print::toFILE(m_pAlloc, m_pFile, "no value after '{}'\n", svKey);
+                eResult = RESULT::QUIT_BADLY;
+                goto done;
+            }
+
+            if (equalsI > 0)
+            {
+                if (equalsI > 0 && (svKey.size() - (equalsI + 1)) <= 0)
+                {
+                    print::toFILE(m_pAlloc, m_pFile, "no value after '{}'\n", svKey);
+                    eResult = RESULT::QUIT_BADLY;
+                    goto done;
+                }
+
+                const StringView svVal = svKey.subString(equalsI + 1);
+                eResult = parser.pfn(this, parser.pAnyData, svRealKey, svVal);
+            }
+            else
+            {
+                const StringView svVal = m_argv[i + 1];
+                eResult = parser.pfn(this, parser.pAnyData, svRealKey, svVal);
+                bInc = true;
+            }
+        }
     }
     else
     {
-        eResult = parser.pfn(this, parser.pAnyData, svKey, {});
+        eResult = parser.pfn(this, parser.pAnyData, svRealKey, {});
     }
 
 done:
@@ -224,12 +281,10 @@ done:
         print::toFILE(m_pAlloc, m_pFile, "failed to parse '{}' argument (usage: '{}')\n", svKey, parser.sUsage);
     else if (eResult == RESULT::SHOW_USAGE)
         print::toFILE(m_pAlloc, m_pFile, "{}\n", parser.sUsage);
-    else if (eResult == RESULT::SHOW_EXTRA)
-        print::toFILE(m_pAlloc, m_pFile, "{}\n", parser.sExtra);
     else if (eResult == RESULT::SHOW_ALL_USAGE)
         printFullUsage(m_pAlloc);
 
-    return {eResult, parser.bNeedsValue};
+    return {eResult, bInc};
 }
 
 } /* namespace adt */

@@ -54,7 +54,7 @@ TextBuff::push(const char ch)
 
     if (b.size >= b.capacity)
     {
-        const isize newCap = utils::max(isize(2), b.capacity*2);
+        const isize newCap = utils::max(isize(8), b.capacity*2);
         grow(newCap);
     }
 
@@ -87,9 +87,8 @@ TextBuff::flush()
 {
     if (m_oBuff->size > 0)
     {
-        [[maybe_unused]] auto _unused =
-            write(STDOUT_FILENO, m_oBuff->pData, m_oBuff->size);
-
+        [[maybe_unused]] const isize n = write(STDOUT_FILENO, m_oBuff->pData, m_oBuff->size);
+        // ADT_ASSERT(n == m_oBuff->size, "n: {}, size: {}", n, m_oBuff->size);
         m_oBuff->size = 0;
     }
 }
@@ -190,6 +189,14 @@ TextBuff::clearKittyImages()
 }
 
 void
+TextBuff::setTitle(const StringView svTitle)
+{
+    push("\x1b]0;");
+    push(svTitle);
+    push("\a");
+}
+
+void
 TextBuff::resizeBuffers(isize width, isize height)
 {
     m_vBack.setSize(width * height);
@@ -203,13 +210,12 @@ TextBuff::resizeBuffers(isize width, isize height)
 
 template<typename STRING_T>
 inline isize
-TextBuff::stringHelper(int x, int y, TEXT_BUFF_STYLE eStyle, const STRING_T& s, int maxSvLen)
+TextBuff::stringFinal(int x, int y, TEXT_BUFF_STYLE eStyle, const STRING_T& s, int maxSvLen)
 {
     if (x < 0 || x >= m_tWidth || y < 0 || y >= m_tHeight)
         return 0;
 
     Span2D bb = backBufferSpan();
-    Span2D fb = frontBufferSpan();
 
     int max = 0;
 
@@ -217,18 +223,13 @@ TextBuff::stringHelper(int x, int y, TEXT_BUFF_STYLE eStyle, const STRING_T& s, 
     {
         if (x >= m_tWidth || max >= maxSvLen) break;
 
-        /* FIXME: regional symbols are broken with some terminals (tmux). */
-        if (StringGraphemeIt::isRegional(wc))
+        /* Zero width joiners and other non printable unicode stuff goes to hell. */
+        int colWidth = 0;
+        if ((u32)wc == 0x200d || (colWidth = wcWidth(wc)) <= 0 || x + colWidth > m_tWidth)
             continue;
-
-        if (fb[x, y] != TextBuffCell {wc, eStyle})
-            m_bChanged = true;
 
         bb[x, y].wc = wc;
         bb[x, y].eStyle = eStyle;
-
-        int colWidth = wcwidth(wc);
-        if (colWidth < 0) break;
 
         for (int i = 1; i < colWidth; ++i)
         {
@@ -264,8 +265,8 @@ TextBuff::resize(isize width, isize height)
 void
 TextBuff::destroy()
 {
-    ArenaStateGuard pushed {m_pArena};
-    if (!m_oBuff) new(&m_oBuff) Arena::Ptr<Buffer> {m_pArena};
+    ArenaScope arenaScope {m_pArena};
+    if (!m_oBuff) m_pArena->initPtr(&m_oBuff);
 
     ADT_ASSERT(m_oBuff->pData == nullptr && m_oBuff->size == 0 && m_oBuff->capacity == 0,
         "m_oBuff->pData: {}, m_oBuff->size {}, m_oBuff->capacity {}",
@@ -276,9 +277,10 @@ TextBuff::destroy()
 
     hideCursor(false);
     clearKittyImages();
+    move(m_tWidth - 1, m_tHeight - 1); /* Helps with default tty buffer. */
+    push(TEXT_BUFF_MOUSE_DISABLE);
     push(TEXT_BUFF_KEYPAD_DISABLE);
     push(TEXT_BUFF_ALT_SCREEN_DISABLE);
-    push(TEXT_BUFF_MOUSE_DISABLE);
     flush();
 
     m_vBack.destroy();
@@ -294,17 +296,17 @@ TextBuff::start(Arena* pArena, isize termWidth, isize termHeight)
 {
     m_pArena = pArena;
 #ifdef OPT_CHAFA
-    new(&m_imgArena) Arena {SIZE_1G};
+    new(&m_imgArena) Arena {SIZE_1M * 128};
 #endif
 
-    ArenaStateGuard pushed {m_pArena};
-    new(&m_oBuff) Arena::Ptr<Buffer> {m_pArena};
+    ArenaScope arenaScope {m_pArena};
+    m_pArena->initPtr(&m_oBuff);
 
-    clearTerm();
-    moveTopLeft();
     push(TEXT_BUFF_ALT_SCREEN_ENABLE);
     push(TEXT_BUFF_KEYPAD_ENABLE);
     push(TEXT_BUFF_MOUSE_ENABLE);
+    clearTerm();
+    moveTopLeft();
     hideCursor(true);
     flush();
 
@@ -314,73 +316,55 @@ TextBuff::start(Arena* pArena, isize termWidth, isize termHeight)
 void
 TextBuff::pushDiff()
 {
-    isize row = 0;
-    isize col = 0;
-    isize nForwards = 0;
     TEXT_BUFF_STYLE eLastStyle = TEXT_BUFF_STYLE::NORM;
-    bool bChangeStyle = false;
 
-    /* won't hurt */
-    ADT_DEFER( push(TEXT_BUFF_NORM) );
-
-    for (row = 0; row < m_tHeight; ++row)
+    for (isize rowI = 0; rowI < m_tHeight; ++rowI)
     {
-        nForwards = 0;
         bool bMoved = false;
+        isize nForwards = 0;
 
-        auto clMove = [&]
+        for (isize colI = 0; colI < m_tWidth; ++colI)
         {
-            if (!bMoved)
-            {
-                move(0, row);
-                bMoved = true;
-            }
-        };
-
-        for (col = 0; col < m_tWidth; ++col)
-        {
-            const auto& front = frontBufferSpan()[col, row];
-            const auto& back = backBufferSpan()[col, row];
-
-            if (back.eStyle != eLastStyle) bChangeStyle = true;
+            const auto& front = frontBufferSpan()[colI, rowI];
+            const auto& back = backBufferSpan()[colI, rowI];
 
             if (front != back && back.wc != -1)
             {
-                if (nForwards > 0)
+                if (!bMoved)
                 {
-                    clMove();
+                    bMoved = true;
+                    move(nForwards, rowI);
+                    nForwards = 0;
+                }
+                else if (nForwards > 0)
+                {
                     forward(nForwards);
                     nForwards = 0;
                 }
 
-                int colWidth = wcwidth(back.wc);
-
-                if (col + colWidth <= m_tWidth)
+                if (back.eStyle != eLastStyle)
                 {
-                    clMove();
-                    if (bChangeStyle)
-                    {
-                        bChangeStyle = false;
-
-                        char aBuff[128] {};
-                        const isize nWritten = styleToBuffer(aBuff, back.eStyle);
-                        push(aBuff, nWritten);
-                        eLastStyle = back.eStyle;
-                    }
-
-                    /* Weird bottom right corner bug on long search strings. */
-                    if (back.wc == L'\0') pushWChar(L' ');
-                    else pushWChar(back.wc);
+                    char aBuff[32];
+                    const isize nBytes = styleToBuffer(aBuff, back.eStyle);
+                    push(aBuff, nBytes);
+                    eLastStyle = back.eStyle;
                 }
 
-                if (colWidth > 1) col += colWidth - 1;
+                if (back.wc == L'\0') pushWChar(L' ');
+                else pushWChar(back.wc);
             }
             else
             {
-                ++nForwards;
+                if (back.wc != -1)
+                {
+                    const isize w = wcWidth(back.wc);
+                    if (w > 0) nForwards += w;
+                }
             }
         }
     }
+
+    if (m_oBuff->size > 0) push(TEXT_BUFF_NORM);
 }
 
 #ifdef OPT_CHAFA
@@ -441,7 +425,7 @@ TextBuff::resetBuffers()
 void
 TextBuff::clean()
 {
-    if (!m_oBuff) new(&m_oBuff) Arena::Ptr<Buffer> {m_pArena};
+    if (!m_oBuff) m_pArena->initPtr(&m_oBuff);
 
     if (m_bErase)
     {
@@ -471,17 +455,13 @@ TextBuff::present()
         clearTerm();
     }
 
-    if (m_bChanged)
-    {
-        m_bChanged = false;
-        pushDiff();
+    pushDiff();
 
 #ifdef OPT_CHAFA
-        showImages();
+    showImages();
 #endif
 
-        utils::swap(&m_vFront, &m_vBack);
-    }
+    utils::swap(&m_vFront, &m_vBack);
 
     flush();
 }
@@ -511,17 +491,18 @@ TextBuff::backBufferSpan()
 isize
 TextBuff::string(int x, int y, TEXT_BUFF_STYLE eStyle, const StringView str, int maxSvLen)
 {
-    return stringHelper(x, y, eStyle, StringWCharIt(str), maxSvLen);
+    return stringFinal(x, y, eStyle, StringWCharIt(str), maxSvLen);
 }
 
 isize
-TextBuff::wideString(int x, int y, TEXT_BUFF_STYLE eStyle, const Span<const wchar_t> sp)
+TextBuff::wideString(int x, int y, TEXT_BUFF_STYLE eStyle, const Span<const wchar_t> sp, int maxSvLen)
 {
-    return stringHelper(x, y, eStyle,
+    return stringFinal(x, y, eStyle,
         Span {
             sp.data(),
             isize(wcsnlen(sp.data(), sp.size()))
-        }
+        },
+        maxSvLen
     );
 }
 
@@ -531,7 +512,7 @@ TextBuff::strings(int x, int y, std::initializer_list<Pair<TEXT_BUFF_STYLE, cons
     isize xOff = 0;
     for (auto& e : lStrings)
     {
-        const isize n = stringHelper(x + xOff, y, e.first, StringWCharIt(e.second), maxSvLen);
+        const isize n = stringFinal(x + xOff, y, e.first, StringWCharIt(e.second), maxSvLen);
         xOff += n;
     }
 
@@ -544,7 +525,7 @@ TextBuff::wideStrings(int x, int y, std::initializer_list<Pair<TEXT_BUFF_STYLE, 
     isize xOff = 0;
     for (auto& e : lStrings)
     {
-        const isize n = stringHelper(x + xOff, y, e.first,
+        const isize n = stringFinal(x + xOff, y, e.first,
             Span{e.second.data(), (isize)wcsnlen(e.second.data(), e.second.size())},
             maxSvLen
         );

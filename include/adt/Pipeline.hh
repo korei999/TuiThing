@@ -88,7 +88,7 @@ Pipeline::add(void* pInput)
 
     m_atomNEnqueued.fetchAdd(1, atomic::ORDER::RELAXED);
     {
-        LockGuard lock {&m_pHead->mtx};
+        LockScope lock {&m_pHead->mtx};
         m_pHead->qInput.emplaceBack(m_pHead->pAlloc, pInput);
     }
     m_pHead->cnd.signal();
@@ -122,7 +122,7 @@ Pipeline::destroy(IAllocator* pAlloc) noexcept
 inline void
 Pipeline::wait()
 {
-    LockGuard lock {&m_mtxWait};
+    LockScope lock {&m_mtxWait};
 
     while (m_atomNEnqueued.load(atomic::ORDER::ACQUIRE) > 0)
         m_cndWait.wait(&m_mtxWait);
@@ -135,14 +135,14 @@ Pipeline::stageLoop(void* pStage)
     auto& pipeline = *stage.pThisPipeline;
     auto& atomBDone = pipeline.m_atomBDone;
 
-    ADT_DEFER( print::err("[Pipeline]: stage({}) done\n", stage.stageId) );
+    ADT_DEFER( LogDebug("[Pipeline]: stage({}) done\n", stage.stageId) );
 
     while (true)
     {
         void* pPackage {};
 
         {
-            LockGuard inputLock {&stage.mtx};
+            LockScope inputLock {&stage.mtx};
 
             while (stage.qInput.empty() && !atomBDone.load(atomic::ORDER::ACQUIRE))
                 stage.cnd.wait(&stage.mtx);
@@ -160,14 +160,14 @@ Pipeline::stageLoop(void* pStage)
             try
             {
                 {
-                    LockGuard outputLock {&stage.pNextStage->mtx};
+                    LockScope outputLock {&stage.pNextStage->mtx};
                     stage.pNextStage->qInput.emplaceBack(stage.pNextStage->pAlloc, pPackage);
                 }
                 stage.pNextStage->cnd.signal();
             }
             catch (const AllocException& ex)
             {
-                ex.printErrorMsg(stderr);
+                LogError{"{}\n", ex.what()};
             }
         }
         else

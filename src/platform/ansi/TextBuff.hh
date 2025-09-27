@@ -81,23 +81,17 @@ enum class TEXT_BUFF_STYLE : adt::u32
 };
 ADT_ENUM_BITWISE_OPERATORS(TEXT_BUFF_STYLE);
 
+/* FIXME: this is not a good approach, there are characters that can be larger in size than sizeof(wchar_t) like '/̶̢̧̠̩̠̠̪̜͚͙̏͗̏̇̑̈͛͘ͅ' (41 bytes).
+ * To represent 1 terminal cell as 1 character this has to be some kind of StringView structure. */
 struct TextBuffCell
 {
     wchar_t wc {};
     TEXT_BUFF_STYLE eStyle {};
+
+    /* */
+
+    bool operator==(const TextBuffCell&) const = default;
 };
-
-inline bool
-operator==(const TextBuffCell& l, const TextBuffCell& r)
-{
-    return (l.wc == r.wc) && (l.eStyle == r.eStyle);
-}
-
-inline bool
-operator!=(const TextBuffCell& l, const TextBuffCell& r)
-{
-    return !(l == r);
-}
 
 struct TextBuff
 {
@@ -121,7 +115,6 @@ struct TextBuff
     adt::isize m_newTHeight {};
 
     bool m_bResize {};
-    bool m_bChanged {};
     bool m_bErase {};
 
     adt::VecM<TextBuffCell> m_vFront {}; /* what to show */
@@ -157,6 +150,7 @@ struct TextBuff
     void hideCursor(bool bHide);
     void pushWChar(wchar_t wc);
     void clearKittyImages();
+    void setTitle(const adt::StringView svTitle);
     /* */
 
     /* main api (more efficient using damage tracking) */
@@ -168,7 +162,7 @@ struct TextBuff
     void resize(adt::isize width, adt::isize height);
 
     adt::isize string(int x, int y, TEXT_BUFF_STYLE eStyle, const adt::StringView sv, int maxSvLen = 99999);
-    adt::isize wideString(int x, int y, TEXT_BUFF_STYLE eStyle, const adt::Span<const wchar_t> sp);
+    adt::isize wideString(int x, int y, TEXT_BUFF_STYLE eStyle, const adt::Span<const wchar_t> sp, int maxSvLen = 99999);
 
     adt::isize strings(int x, int y, std::initializer_list<adt::Pair<TEXT_BUFF_STYLE, const adt::StringView>> lStrings, int maxSvLen = 99999);
     adt::isize wideStrings(int x, int y, std::initializer_list<adt::Pair<TEXT_BUFF_STYLE, adt::Span<const wchar_t>>> lStrings, int maxSvLen = 99999);
@@ -190,7 +184,7 @@ protected:
     void resizeBuffers(adt::isize width, adt::isize height);
 
     template<typename STRING_T>
-    adt::isize stringHelper(int x, int y, TEXT_BUFF_STYLE eStyle, const STRING_T& s, int maxSvLen = 99999);
+    adt::isize stringFinal(int x, int y, TEXT_BUFF_STYLE eStyle, const STRING_T& s, int maxSvLen = 99999);
 
 #ifdef OPT_CHAFA
     void showImages();

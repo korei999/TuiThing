@@ -1,7 +1,8 @@
 #pragma once
 
 #include "types.hh"
-#include "print-inl.hh" /* IWYU pragma: keep */
+
+#include "ILogger.hh"
 
 #if __has_include(<unistd.h>)
     #include <unistd.h>
@@ -43,6 +44,15 @@ assertionFailed(const char* cnd, const char* msg, const char* file, int line, co
         "[{}, {}: {}()] assertion( {} ) failed.\n(msg) \"{}\"\n",
         file, line, func, cnd, msg
     );
+
+    {
+        ILogger* pLog = ILogger::inst();
+        if (pLog)
+        {
+            pLog->add(ILogger::LEVEL::ERR, {}, nullptr, {aBuff, n});
+            pLog->destroy();
+        }
+    }
 
 #if __has_include(<windows.h>)
     MessageBoxA(

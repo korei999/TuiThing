@@ -43,6 +43,19 @@ union V2
 
     f32& operator[](int i) { ADT_ASSERT(i >= 0 && i < 2, "i: {}", i); return e[i]; }
     const f32& operator[](int i) const { ADT_ASSERT(i >= 0 && i < 2, "i: {}", i); return e[i]; }
+
+    V2 operator-();
+    V2 operator+(const V2& r) const;
+    V2 operator-(const V2& r) const;
+    V2 operator*(f32 s) const;
+    friend V2 operator*(f32 s, const V2& v) { return v * s; }
+    V2 operator*(const V2& r) const;
+    V2& operator*=(const V2& r);
+    V2 operator/(f32 s) const;
+    V2& operator+=(const V2& r);
+    V2& operator-=(const V2& r);
+    V2& operator*=(f32 r);
+    V2& operator/=(f32 r);
 };
 
 union IV2
@@ -61,6 +74,10 @@ union IV2
 
     int& operator[](int i) { ADT_ASSERT(i >= 0 && i < 2, "i: {}", i); return e[i]; }
     const int& operator[](int i) const { ADT_ASSERT(i >= 0 && i < 2, "i: {}", i); return e[i]; }
+
+    IV2 operator-(const IV2& r) const;
+    IV2& operator+=(const IV2& r);
+    IV2& operator-=(const IV2& r);
 };
 
 constexpr inline
@@ -81,6 +98,22 @@ union V3
 
     f32& operator[](int i) { ADT_ASSERT(i >= 0 && i < 3, "i: {}", i); return e[i]; }
     const f32& operator[](int i) const { ADT_ASSERT(i >= 0 && i < 3, "i: {}", i); return e[i]; }
+
+    bool operator==(const V3& r) const;
+
+    V3 operator+(const V3& r) const;
+    V3 operator-(const V3& r) const;
+    V3 operator-() const;
+    V3 operator*(f32 s) const;
+    friend V3 operator*(f32 s, const V3& v) { return v * s; }
+    V3 operator*(const V3& r) const;
+    V3 operator/(f32 s) const;
+    V3 operator+(f32 b) const;
+    V3& operator+=(f32 b);
+    V3& operator+=(const V3& r);
+    V3& operator-=(const V3& r);
+    V3& operator*=(f32 s);
+    V3& operator/=(f32 s);
 };
 
 union IV3
@@ -112,6 +145,22 @@ union V4
 
     f32& operator[](int i) { ADT_ASSERT(i >= 0 && i < 4, "i: {}", i); return e[i]; }
     const f32& operator[](int i) const { ADT_ASSERT(i >= 0 && i < 4, "i: {}", i); return e[i]; }
+
+    bool operator==(const V4& r) const;
+
+    V4 operator+(const V4& r) const;
+    V4 operator-() const;
+    V4 operator-(const V4& r) const;
+    V4 operator*(f32 r) const;
+    friend V4 operator*(f32 l, const V4& r) { return r * l; }
+    V4 operator*(const V4& r) const;
+    V4& operator*=(const V4& r);
+    V4 operator/(f32 r) const;
+    friend V4 operator/(f32 l, const V4& r) { return r * l; }
+    V4& operator+=(const V4& r);
+    V4& operator-=(const V4& r);
+    V4& operator*=(f32 r);
+    V4& operator/=(f32 r);
 };
 
 union IV4
@@ -138,62 +187,6 @@ union IV4
     const int& operator[](int i) const { ADT_ASSERT(i >= 0 && i < 4, "i: {}", i); return e[i]; }
 };
 
-union IV4u8
-{
-    u8 e[4];
-    struct { u8 x, y, z, w; };
-
-    /* */
-
-    constexpr explicit operator IV4() const
-    {
-        return {
-            static_cast<i32>(x),
-            static_cast<i32>(y),
-            static_cast<i32>(z),
-            static_cast<i32>(w)
-        };
-    }
-
-    constexpr explicit operator V4() const
-    {
-        return {
-            static_cast<f32>(x),
-            static_cast<f32>(y),
-            static_cast<f32>(z),
-            static_cast<f32>(w)
-        };
-    }
-};
-
-union IV4u16
-{
-    u16 e[4];
-    struct { u16 x, y, z, w; };
-
-    /* */
-
-    constexpr explicit operator IV4() const
-    {
-        return {
-            static_cast<i32>(x),
-            static_cast<i32>(y),
-            static_cast<i32>(z),
-            static_cast<i32>(w)
-        };
-    }
-
-    constexpr explicit operator V4() const
-    {
-        return {
-            static_cast<f32>(x),
-            static_cast<f32>(y),
-            static_cast<f32>(z),
-            static_cast<f32>(w)
-        };
-    }
-};
-
 union M2
 {
     f32 d[4];
@@ -212,6 +205,15 @@ union M3
     /* */
 
     constexpr explicit operator M4() const;
+
+    bool operator==(const M3& r) const;
+
+    M3 operator*(const f32 r) const;
+    M3& operator*=(const f32 r);
+    friend M3 operator*(const f32 l, const M3& r) { return r * l; }
+    V3 operator*(const V3& r) const;
+    M3 operator*(const M3& r) const;
+    M3& operator*=(const M3& r);
 };
 
 union M4
@@ -231,6 +233,17 @@ union M4
 
     V4& operator[](int i) { ADT_ASSERT(i >= 0 && i < 4, "i: {}", i); return v[i]; }
     const V4& operator[](int i) const { ADT_ASSERT(i >= 0 && i < 4, "i: {}", i); return v[i]; }
+
+    bool operator==(const M4& r) const;
+
+    M4 operator*(const f32 r) const;
+    M4 operator*(bool) = delete;
+    M4& operator*=(const f32 r);
+    M4& operator*=(bool) = delete;
+    friend M4 operator*(const f32 l, const M4& r) { return r * l; }
+    V4 operator*(const V4& r) const;
+    M4 operator*(const M4& r) const;
+    M4& operator*=(const M4& r);
 };
 
 union Qt
@@ -240,6 +253,13 @@ union Qt
     struct { f32 x, y, z, w; };
 
     /* */
+
+    Qt operator-() const;
+    Qt operator*(const Qt& r) const;
+    Qt operator*(const V4& r) const;
+    Qt operator*=(const Qt& r);
+    Qt operator*=(const V4& r);
+    bool operator==(const Qt& b) const;
 
     Qt
     getSwapped()
@@ -275,88 +295,6 @@ constexpr V4 V4From(f32 x);
 
 inline IV2 IV2_F24_8(const V2 v);
 
-inline V2 operator-(const V2& s);
-
-inline V2 operator+(const V2& l, const V2& r);
-
-inline V2 operator-(const V2& l, const V2& r);
-
-inline IV2 operator-(const IV2& l, const IV2& r);
-
-inline IV2& operator+=(IV2& l, const IV2& r);
-
-inline IV2& operator-=(IV2& l, const IV2& r);
-
-inline V2 operator*(const V2& v, f32 s);
-
-inline V2 operator*(f32 s, const V2& v);
-
-inline V2 operator*(const V2& l, const V2& r);
-
-inline V2& operator*=(V2& l, const V2& r);
-
-inline V2 operator/(const V2& v, f32 s);
-
-inline V2& operator+=(V2& l, const V2& r);
-
-inline V2& operator-=(V2& l, const V2& r);
-
-inline V2& operator*=(V2& l, f32 r);
-
-inline V2& operator/=(V2& l, f32 r);
-
-inline V3 operator+(const V3& l, const V3& r);
-
-inline V3 operator-(const V3& l, const V3& r);
-
-inline V3 operator-(const V3& v);
-
-inline V3 operator*(const V3& v, f32 s);
-
-inline V3 operator*(f32 s, const V3& v);
-
-inline V3 operator*(const V3& l, const V3& r);
-
-inline V3 operator/(const V3& v, f32 s);
-
-inline V3 operator+(V3 a, f32 b);
-
-inline V3& operator+=(V3& a, f32 b);
-
-inline V3& operator+=(V3& l, const V3& r);
-
-inline V3& operator-=(V3& l, const V3& r);
-
-inline V3& operator*=(V3& v, f32 s);
-
-inline V3& operator/=(V3& v, f32 s);
-
-inline V4 operator+(const V4& l, const V4& r);
-
-inline V4 operator-(const V4& l);
-
-inline V4 operator-(const V4& l, const V4& r);
-
-inline V4 operator*(const V4& l, f32 r);
-
-inline V4 operator*(f32 l, const V4& r);
-
-inline V4 operator*(const V4& l, const V4& r);
-
-inline V4& operator*=(V4& l, const V4& r);
-
-inline V4 operator/(const V4& l, f32 r);
-
-inline V4 operator/(f32 l, const V4& r);
-
-inline V4& operator+=(V4& l, const V4& r);
-
-inline V4& operator-=(V4& l, const V4& r);
-
-inline V4& operator*=(V4& l, f32 r);
-
-inline V4& operator/=(V4& l, f32 r);
-
 constexpr M2 M2Iden();
 
 constexpr M3 M3Iden();
@@ -387,47 +325,11 @@ inline M3 M3Adj(const M3& s);
 
 inline M4 M4Adj(const M4& s);
 
-inline M3 operator*(const M3& l, const f32 r);
-
-inline M4 operator*(const M4& l, const f32 r);
-
-inline M4 operator*(const M4& a, bool) = delete;
-
-inline M3& operator*=(M3& l, const f32 r);
-
-inline M4& operator*=(M4& l, const f32 r);
-
-inline M4& operator*=(M4& a, bool);
-
-inline M3 operator*(const f32 l, const M3& r);
-
-inline M4 operator*(const f32 l, const M4& r);
-
 inline M3 M3Inv(const M3& s);
 
 inline M4 M4Inv(const M4& s);
 
 inline M3 M3Normal(const M3& m);
-
-inline V3 operator*(const M3& l, const V3& r);
-
-inline V4 operator*(const M4& l, const V4& r);
-
-inline M3 operator*(const M3& l, const M3& r);
-
-inline M3& operator*=(M3& l, const M3& r);
-
-inline M4 operator*(const M4& l, const M4& r);
-
-inline M4& operator*=(M4& l, const M4& r);
-
-inline bool operator==(const V3& l, const V3& r);
-
-inline bool operator==(const V4& l, const V4& r);
-
-inline bool operator==(const M3& l, const M3& r);
-
-inline bool operator==(const M4& l, const M4& r);
 
 inline f32 V2Length(const V2& s);
 
@@ -517,18 +419,6 @@ inline M4 QtRot2(const Qt& q);
 
 inline Qt QtConj(const Qt& q);
 
-inline Qt operator-(const Qt& l);
-
-inline Qt operator*(const Qt& l, const Qt& r);
-
-inline Qt operator*(const Qt& l, const V4& r);
-
-inline Qt operator*=(Qt& l, const Qt& r);
-
-inline Qt operator*=(Qt& l, const V4& r);
-
-inline bool operator==(const Qt& a, const Qt& b);
-
 inline Qt QtNorm(Qt a);
 
 inline V2 normalize(const V2& v);
@@ -565,14 +455,13 @@ inline M4 transformation(const V3& translation, const V3& scale);
 namespace adt::print
 {
 
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::V2& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::V3& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::V4& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::IV4& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::IV4u16& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::Qt& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::M2& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::M3& x);
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::M4& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::V2& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::V3& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::V4& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::IV4& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::Qt& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::M2& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::M3& x);
+template<> inline isize format(Context* pCtx, FormatArgs fmtArgs, const math::M4& x);
 
 } /* namespace adt::math */

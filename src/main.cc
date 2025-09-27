@@ -15,6 +15,9 @@ struct Window : platform::ansi::Win
 void
 Window::update()
 {
+    Arena* pArena = IThreadPool::inst()->arena();
+    ArenaScope arenaScope {pArena};
+
     m_textBuff.clean();
 
     using STYLE = platform::ansi::TEXT_BUFF_STYLE;
@@ -61,11 +64,10 @@ Window::procEvents()
 static void
 go()
 {
-    Arena arena {SIZE_1G};
-    defer( arena.freeAll() );
+    Arena* pArena = IThreadPool::inst()->arena();
 
     IWindow* pWin = IWindow::inst();
-    pWin->start(&arena);
+    pWin->start(pArena);
     defer( pWin->destroy() );
 
     pWin->m_bRunning = true;
@@ -74,13 +76,18 @@ go()
     {
         pWin->redraw();
         pWin->procEvents();
-        arena.reset();
+
+        ADT_ASSERT(pArena->memoryUsed() == 0, "{}", pArena->memoryUsed());
     }
 }
 
 int
 main()
 {
+    ThreadPool ztp {SIZE_1M * 64};
+    IThreadPool::setGlobal(&ztp);
+    defer( ztp.destroy() );
+
     Logger logger {stderr, ILogger::LEVEL::DEBUG, 512, true};
     Logger::setGlobal(&logger);
     defer( logger.destroy() );
@@ -92,8 +99,8 @@ main()
 
         go();
     }
-    catch (const IException& ex)
+    catch (const std::exception& ex)
     {
-        ex.printErrorMsg(stderr);
+        LogError{"{}\n", ex.what()};
     }
 }

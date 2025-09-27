@@ -62,7 +62,16 @@ struct StringView
 
     /* */
 
-    explicit constexpr operator bool() const { return size() > 0; }
+    explicit constexpr operator bool() const noexcept { return size() > 0; }
+
+    [[nodiscard]] inline bool operator==(const StringView& r) const noexcept;
+    [[nodiscard]] inline bool operator==(const char* r) const noexcept;
+    [[nodiscard]] inline bool operator!=(const StringView& r) const noexcept;
+    [[nodiscard]] inline bool operator<(const StringView& r) const noexcept;
+    [[nodiscard]] inline bool operator<=(const StringView& r) const noexcept;
+    [[nodiscard]] inline bool operator>(const StringView& r) const noexcept;
+    [[nodiscard]] inline bool operator>=(const StringView& r) const noexcept;
+    [[nodiscard]] inline i64 operator-(const StringView& r) const noexcept;
 
     /* */
 
@@ -93,6 +102,7 @@ struct StringView
     [[nodiscard]] u64 toU64(int base = 10) const noexcept;
     [[nodiscard]] f64 toF64() const noexcept;
     [[nodiscard]] StringView subString(isize start, isize size) const noexcept;
+    [[nodiscard]] StringView subString(isize start) const noexcept; /* From start + all the leftovers. */
 
     template<typename T>
     T reinterpret(isize at) const;
@@ -113,15 +123,6 @@ protected:
     template<typename LAMBDA> StringView& trimEnd(LAMBDA clFill);
     template<typename LAMBDA> StringView& removeNLEnd(LAMBDA clFill);
 };
-
-[[nodiscard]] inline bool operator==(const StringView& l, const StringView& r);
-[[nodiscard]] inline bool operator==(const StringView& l, const char* r);
-[[nodiscard]] inline bool operator!=(const StringView& l, const StringView& r);
-[[nodiscard]] inline bool operator<(const StringView& l, const StringView& r);
-[[nodiscard]] inline bool operator<=(const StringView& l, const StringView& r);
-[[nodiscard]] inline bool operator>(const StringView& l, const StringView& r);
-[[nodiscard]] inline bool operator>=(const StringView& l, const StringView& r);
-[[nodiscard]] inline i64 operator-(const StringView& l, const StringView& r);
 
 [[nodiscard]] inline String StringCat(IAllocator* p, const StringView& l, const StringView& r);
 
@@ -177,36 +178,32 @@ struct StringFixed
 
     /* */
 
-    StringFixed() = default;
+    StringFixed() noexcept = default;
+    StringFixed(const StringView svName) noexcept;
+    StringFixed(const char* nts) noexcept : StringFixed(StringView(nts)) {}
+    StringFixed(const char* p, const isize size) noexcept : StringFixed(StringView {const_cast<char*>(p), size}) {}
+    StringFixed(const Span<const char> sp) noexcept : StringFixed(StringView {const_cast<char*>(sp.m_pData), sp.m_size}) {}
+    StringFixed(const Span<const char> sp, isize size) noexcept : StringFixed(StringView {const_cast<char*>(sp.m_pData), size}) {}
 
-    StringFixed(const StringView svName);
-
-    StringFixed(const char* nts) : StringFixed(StringView(nts)) {}
-
-    StringFixed(const char* p, const isize size) : StringFixed(StringView {const_cast<char*>(p), size}) {}
-
-    StringFixed(const Span<const char> sp) : StringFixed(StringView {const_cast<char*>(sp.m_pData), sp.m_size}) {}
-
-    StringFixed(const Span<const char> sp, isize size) : StringFixed(StringView {const_cast<char*>(sp.m_pData), size}) {}
-
-    template<int SIZE_B>
-    StringFixed(const StringFixed<SIZE_B> other);
+    template<int SIZE_B> StringFixed(const StringFixed<SIZE_B> other) noexcept;
 
     /* */
 
-    operator adt::StringView() { return StringView(m_aBuff); };
-    operator const adt::StringView() const { return StringView(m_aBuff); };
+    operator StringView() noexcept { return StringView(m_aBuff); };
+    operator const StringView() const noexcept { return StringView(m_aBuff); };
 
-    explicit operator bool() const { return size() > 0; }
+    explicit operator bool() const noexcept { return size() > 0; }
 
     /* */
 
-    bool operator==(const StringFixed& other) const;
-    bool operator==(const adt::StringView sv) const;
-    template<isize ARRAY_SIZE> bool operator==(const char (&aBuff)[ARRAY_SIZE]) const;
+    bool operator==(const StringFixed& other) const noexcept;
+    bool operator==(const StringView sv) const noexcept;
+    template<isize ARRAY_SIZE> bool operator==(const char (&aBuff)[ARRAY_SIZE]) const noexcept;
 
-    auto& data() { return m_aBuff; }
-    const auto& data() const { return m_aBuff; }
+    template<int SIZE_R> bool operator==(const StringFixed<SIZE_R>& r) const noexcept;
+
+    auto& data() noexcept { return m_aBuff; }
+    const auto& data() const noexcept { return m_aBuff; }
 
     isize cap() const noexcept { return CAP; }
 
@@ -214,7 +211,66 @@ struct StringFixed
     void destroy() noexcept;
 };
 
-template<int SIZE_L, int SIZE_R>
-inline bool operator==(const StringFixed<SIZE_L>& l, const StringFixed<SIZE_R>& r);
+/* Vec like, small string optimized String class. */
+struct VString
+{
+    union {
+        char m_aBuff[16] {};
+        struct {
+            char* m_pData;
+            isize m_size;
+        };
+    };
+    isize m_cap = 16;
+
+    /* */
+
+    VString() = default;
+    VString(IAllocator* pAlloc, const StringView sv);
+
+    operator StringView() noexcept { return StringView(data(), size()); }
+    operator const StringView() const noexcept { return StringView(const_cast<char*>(data()), size()); }
+
+    /* */
+
+    void destroy(IAllocator* pAlloc) noexcept;
+
+    char* data() noexcept;
+    const char* data() const noexcept;
+
+    bool empty() const noexcept;
+    isize size() const noexcept;
+    isize cap() const noexcept;
+
+    isize push(IAllocator* pAlloc, char c);
+    isize push(IAllocator* pAlloc, const StringView sv);
+
+    void reallocWith(IAllocator* pAlloc, const StringView sv);
+    void removeNLEnd(bool bDestructive) noexcept;
+
+protected:
+    void grow(IAllocator* pAlloc, isize newCap);
+};
+
+static_assert(sizeof(VString) == 24);
+
+template<typename ALLOC_T = StdAllocatorNV>
+struct VStringManaged : VString
+{
+    using Base = VString;
+
+    VStringManaged() = default;
+    VStringManaged(const StringView sv) : Base{ALLOC_T::inst(), sv} {}
+
+    /* */
+
+    auto* allocator() const noexcept { return ALLOC_T::inst(); }
+    void destroy() noexcept { Base::destroy(allocator()); }
+    isize push(char c) { return Base::push(allocator(), c); }
+    isize push(const StringView sv) { return Base::push(allocator(), sv); }
+    void reallocWith(const StringView sv) { Base::reallocWith(allocator(), sv); }
+};
+
+using VStringM = VStringManaged<>;
 
 } /* namespace adt */

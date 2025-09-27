@@ -13,7 +13,6 @@ namespace adt
 {
 
 constexpr f32 MAP_DEFAULT_LOAD_FACTOR = 0.5f;
-constexpr f32 MAP_DEFAULT_LOAD_FACTOR_INV = 1.0f / MAP_DEFAULT_LOAD_FACTOR;
 
 enum class MAP_RESULT_STATUS : u8 { NOT_FOUND, FOUND, INSERTED };
 
@@ -107,6 +106,7 @@ struct Map
 
     Map() = default;
     Map(IAllocator* pAllocator, isize prealloc = SIZE_MIN, f32 loadFactor = MAP_DEFAULT_LOAD_FACTOR);
+    Map(IAllocator* pAllocator, std::initializer_list<Pair<K, V>> lPairs);
 
     /* */
 
@@ -292,14 +292,14 @@ Map<K, V, FN_HASH>::emplaceHashed(IAllocator* p, const K& key, const usize keyHa
     V tmpVal = V (std::forward<ARGS>(args)...);
 
     ADT_DEFER(
-        utils::moveDestruct(&bucket.val, std::move(tmpVal));
+        utils::destructiveMove(&bucket.val, std::move(tmpVal));
         bucket.eFlags = MAP_BUCKET_FLAGS::OCCUPIED;
     );
 
     if (bucket.key == key)
     {
 #ifndef NDEBUG
-        print::err("[Map::emplace]: updating value for existing key('{}'): old: '{}', new: '{}'\n",
+        LogWarn("updating value for existing key('{}'): old: '{}', new: '{}'\n",
             key, bucket.val, tmpVal
         );
 #endif
@@ -311,7 +311,7 @@ Map<K, V, FN_HASH>::emplaceHashed(IAllocator* p, const K& key, const usize keyHa
         };
     }
 
-    if constexpr (!std::is_trivially_destructible_v<K>) bucket.key.~K();
+    utils::destruct(&bucket.key);
     new(&bucket.key) K(key);
 
     ++m_nOccupied;
@@ -343,12 +343,10 @@ Map<K, V, FN_HASH>::remove(isize i)
 {
     auto& bucket = m_vBuckets[i];
 
-    if constexpr (!std::is_trivially_destructible_v<K>)
-        bucket.key.~K();
+    utils::destruct(&bucket.key);
     new(&bucket.key) K {};
 
-    if constexpr (!std::is_trivially_destructible_v<V>)
-        bucket.val.~V();
+    utils::destruct(&bucket.val);
     new(&bucket.val) V {};
 
     bucket.eFlags = MAP_BUCKET_FLAGS::DELETED;
@@ -458,13 +456,7 @@ Map<K, V, FN_HASH>::searchHashed(const K& key, usize keyHash) const
 {
     MapResult<K, V> res {.eStatus = MAP_RESULT_STATUS::NOT_FOUND};
 
-    if (m_nOccupied == 0)
-    {
-#ifndef NDEBUG
-        print::err("[Map::search]: m_nOccupied: {}\n", m_nOccupied);
-#endif
-        return res;
-    }
+    if (m_nOccupied == 0) return res;
 
     isize idx = isize(keyHash & usize(m_vBuckets.cap() - 1));
     res.hash = keyHash;
@@ -480,7 +472,7 @@ Map<K, V, FN_HASH>::searchHashed(const K& key, usize keyHash) const
             break;
         }
 
-        idx = utils::cycleForwardPowerOf2(idx, m_vBuckets.size());
+        idx = (idx + 1) & (m_vBuckets.size() - 1);
     }
 
     return res;
@@ -505,9 +497,9 @@ Map<K, V, FN_HASH>::insertionIdx(usize hash, const K& key) const
         if (m_vBuckets[idx].key == key) break;
 
 #if !defined NDEBUG && defined ADT_DBG_COLLISIONS
-        print::err("[Map::insertionIdx]: collision at: {} (keys: '{}' and '{}'), nCollisions: {}\n", idx, key, m_vBuckets[idx].key, m_nCollisions++);
+        LogWarn("collision at: {} (keys: '{}' and '{}'), nCollisions: {}\n", idx, key, m_vBuckets[idx].key, m_nCollisions++);
 #endif
-        idx = utils::cycleForwardPowerOf2(idx, m_vBuckets.size());
+        idx = (idx + 1) & (m_vBuckets.size() - 1);
     }
 
     return idx;
@@ -519,8 +511,19 @@ Map<K, V, FN_HASH>::Map(IAllocator* pAllocator, isize prealloc, f32 loadFactor)
       m_nOccupied {},
       m_maxLoadFactor {loadFactor}
 {
-    ADT_ASSERT(isPowerOf2(m_vBuckets.cap()), "");
+    ADT_ASSERT(isPowerOf2(m_vBuckets.cap()), "{}", m_vBuckets.cap());
     m_vBuckets.setSize(pAllocator, m_vBuckets.cap());
+}
+
+template<typename K, typename V, usize (*FN_HASH)(const K&)>
+Map<K, V, FN_HASH>::Map(IAllocator* pAllocator, std::initializer_list<Pair<K, V>> lPairs)
+    : m_vBuckets {pAllocator, nextPowerOf2(isize(lPairs.size() / MAP_DEFAULT_LOAD_FACTOR))},
+      m_nOccupied {},
+      m_maxLoadFactor {MAP_DEFAULT_LOAD_FACTOR}
+{
+    m_vBuckets.setSize(pAllocator, m_vBuckets.cap());
+    for (auto& pair : lPairs)
+        emplace(pAllocator, pair.first, pair.second);
 }
 
 template<typename K, typename V, typename ALLOC_T = StdAllocatorNV, usize (*FN_HASH)(const K&) = hash::func<K>>
@@ -531,8 +534,8 @@ struct MapManaged : public Map<K, V, FN_HASH>
     /* */
 
     MapManaged() = default;
-    MapManaged(isize prealloc, f32 loadFactor = MAP_DEFAULT_LOAD_FACTOR)
-        : Base::Map(allocator(), prealloc, loadFactor) {}
+    MapManaged(isize prealloc, f32 loadFactor = MAP_DEFAULT_LOAD_FACTOR) : Base::Map(allocator(), prealloc, loadFactor) {}
+    MapManaged(std::initializer_list<Pair<K, V>> lPairs) : Base::Map(allocator(), lPairs) {}
 
     /* */
 
@@ -562,8 +565,9 @@ using MapM = MapManaged<K, V, StdAllocatorNV, FN_HASH>;
 namespace print
 {
 
+template<>
 inline isize
-format(Context* ctx, FormatArgs fmtArgs, const MAP_RESULT_STATUS eStatus)
+format(Context* ctx, FormatArgs fmtArgs, const MAP_RESULT_STATUS& eStatus)
 {
     constexpr StringView map[] {
         "NOT_FOUND", "FOUND", "INSERTED"

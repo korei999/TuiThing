@@ -3,7 +3,9 @@
 
 #pragma once
 
-#include "print.hh"
+#include "ILogger.hh"
+
+#include <cstring>
 
 #if __has_include(<dirent.h>)
 
@@ -60,17 +62,11 @@ struct Directory
 
         /* */
 
-        It(const Directory* pSelf, int _i)
+        It(const Directory* pSelf, int _i) noexcept
             : p(const_cast<Directory*>(pSelf)), i(_i)
         {
             if (i == NPOS) return;
-
-            while ((p->m_pEntry = readdir(p->m_pDir)))
-            {
-                if (strcmp(p->m_pEntry->d_name, ".") == 0 || strcmp(p->m_pEntry->d_name, "..") == 0)
-                    continue;
-                else break;
-            }
+            p->m_pEntry = readdir(p->m_pDir);
         }
 
         It(int _i) : i(_i) {}
@@ -82,7 +78,7 @@ struct Directory
         {
             if (!p || (p && !p->m_pEntry)) return {};
 
-            usize n = strnlen(p->m_pEntry->d_name, sizeof(p->m_pEntry->d_name));
+            usize n = ::strnlen(p->m_pEntry->d_name, sizeof(p->m_pEntry->d_name));
             return {p->m_pEntry->d_name, static_cast<isize>(n)};
         }
 
@@ -113,7 +109,7 @@ Directory::Directory(const char* ntsPath)
     if (!m_pDir)
     {
 #ifndef NDEBUG
-        print::err("failed to open '{}' directory\n", ntsPath);
+        LogError("failed to open '{}' directory\n", ntsPath);
 #endif
         return;
     }
@@ -125,7 +121,7 @@ Directory::close()
      int err = closedir(m_pDir);
 
 #ifndef NDEBUG
-     if (err != 0) print::err("closedir(): error '{}'\n", err);
+     if (err != 0) LogError("closedir(): error '{}'\n", err);
 #endif
 
      return err == 0;
@@ -240,7 +236,7 @@ Directory::Directory(const char* ntsPath)
     if (m_hFind == INVALID_HANDLE_VALUE)
     {
 #ifndef NDEBUG
-        print::err("failed to open '{}'\n", ntsPath);
+        LogError("failed to open '{}'\n", ntsPath);
 #endif
         memset(m_aBuff, 0, sizeof(m_aBuff));
     }
@@ -258,8 +254,7 @@ Directory::close()
     int err = FindClose(m_hFind);
 
 #ifndef NDEBUG
-    if (err == 0)
-        print::err("FindClose(): failed '{}'\n", GetLastError());
+    if (err == 0) LogError("FindClose(): failed '{}'\n", GetLastError());
 #endif
 
     return err > 0;

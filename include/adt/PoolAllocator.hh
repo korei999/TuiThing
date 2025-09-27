@@ -44,7 +44,7 @@ struct PoolAllocator : public IArena
 
 #endif
     ) noexcept(false)
-        : m_blockCap {alignUp(blockSize, chunkSize + sizeof(Node))},
+        : m_blockCap {alignUpPO2(blockSize, chunkSize + sizeof(Node))},
           m_chunkSize {chunkSize + sizeof(Node)},
           m_pBackAlloc(pBackAlloc),
 #if !defined NDEBUG && defined ADT_DBG_MEMORY
@@ -85,7 +85,7 @@ PoolAllocator::allocBlock()
     Block* r = (Block*)m_pBackAlloc->zalloc(1, total);
 
 #if !defined NDEBUG && defined ADT_DBG_MEMORY
-    print::err("[PoolAllocator: {}, {}, {}]: new block of size: {}\n",
+    LogError("[PoolAllocator: {}, {}, {}]: new block of size: {}\n",
         print::shorterSourcePath(m_loc.file_name()), m_loc.function_name(), m_loc.line(), m_blockCap
     );
 #endif

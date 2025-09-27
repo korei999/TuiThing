@@ -3,6 +3,7 @@
 #include "String-inl.hh"
 #include "enum.hh"
 
+#include <limits>
 #include <type_traits>
 #include <cstdio>
 
@@ -26,7 +27,7 @@ struct FormatArgs
 
     /* */
 
-    u16 maxLen = NPOS16;
+    isize maxLen = std::numeric_limits<isize>::max();
     u8 maxFloatLen = NPOS8;
     BASE eBase = BASE::TEN;
     FLAGS eFmtFlags {};
@@ -45,8 +46,7 @@ struct Builder
     /* */
 
     Builder() = default;
-    Builder(IAllocator* pAlloc) noexcept : m_pAlloc {pAlloc} {}
-    Builder(IAllocator* pAlloc, isize prealloc);
+    Builder(IAllocator* pAlloc, isize prealloc = 8);
     Builder(IAllocator* pAlloc, char* pBuff, isize buffSize) noexcept : m_pAlloc {pAlloc}, m_pData {pBuff}, m_cap {buffSize} {}
     Builder(char* pBuff, isize buffSize) noexcept : m_pData {pBuff}, m_cap {buffSize} {}
 
@@ -56,6 +56,11 @@ struct Builder
     explicit operator String() noexcept;
 
     /* */
+
+    isize size() const noexcept { return m_size; }
+
+    template<typename ...ARGS_T>
+    inline StringView print(const StringView fmt, const ARGS_T&... args);
 
     void reset() noexcept;
     void destroy() noexcept;
@@ -91,14 +96,14 @@ constexpr const StringView typeName();
 
 inline const char* shorterSourcePath(const char* ntsSourcePath);
 
-inline isize printArgs(Context pCtx);
+inline isize parsePrintArgs(Context* pCtx);
 
 inline isize parseFormatArg(FormatArgs* pArgs, const StringView fmt, isize fmtIdx) noexcept;
 
 template<typename T>
 inline isize intToBuffer(T x, Span<char> spBuff, FormatArgs fmtArgs) noexcept;
 
-inline isize copyBackToContext(Context* pCtx, FormatArgs fmtArgs, const StringView sv);
+inline isize pushUsingFmtArgs(Context* pCtx, FormatArgs fmtArgs, const StringView sv);
 
 inline isize format(Context* pCtx, FormatArgs fmtArgs, const StringView str);
 
@@ -106,6 +111,11 @@ template<typename STRING_T> requires ConvertsToStringView<STRING_T>
 inline isize format(Context* pCtx, FormatArgs fmtArgs, const STRING_T& str);
 
 inline isize format(Context* pCtx, FormatArgs fmtArgs, const char* str);
+
+template<isize SIZE>
+inline isize format(Context* pCtx, FormatArgs fmtArgs, wchar_t const(&wstr)[SIZE]);
+
+inline isize format(Context* pCtx, FormatArgs fmtArgs, const wchar_t* wstr);
 
 inline isize format(Context* pCtx, FormatArgs fmtArgs, char* const& pNullTerm);
 
@@ -129,10 +139,10 @@ inline isize format(Context* pCtx, FormatArgs fmtArgs, null);
 inline isize format(Context* pCtx, FormatArgs fmtArgs, Empty);
 
 template<typename T>
-inline isize format(Context* pCtx, FormatArgs fmtArgs, const T* const p);
+inline isize format(Context* pCtx, FormatArgs fmtArgs, const T* const& p);
 
 template<typename T, typename ...ARGS_T>
-inline constexpr isize printArgs(Context* pCtx, const T& tFirst, const ARGS_T&... tArgs);
+inline constexpr isize parsePrintArgs(Context* pCtx, const T& tFirst, const ARGS_T&... tArgs);
 
 template<isize SIZE = 512, typename ...ARGS_T>
 inline isize toFILE(FILE* fp, const StringView fmt, const ARGS_T&... tArgs);
@@ -151,9 +161,6 @@ template<typename ...ARGS_T>
 
 template<typename ...ARGS_T>
 [[nodiscard]] inline String toString(IAllocator* pAlloc, isize prealloc, const StringView fmt, const ARGS_T&... tArgs);
-
-template<typename ...ARGS_T>
-inline StringView toBuilder(Builder* pBuffer, const StringView fmt, const ARGS_T&... tArgs);
 
 template<typename ...ARGS_T>
 inline isize out(const StringView fmt, const ARGS_T&... tArgs);

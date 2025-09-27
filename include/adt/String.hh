@@ -6,8 +6,10 @@
 #include "IAllocator.hh"
 #include "utils.hh"
 #include "Span.hh" /* IWYU pragma: keep */
-#include "print.hh" /* IWYU pragma: keep */
-#include "wcwidth.hh"
+
+#ifdef _MSC_VER
+    #include "wcwidth.hh"
+#endif
 
 #include <cwchar>
 
@@ -50,7 +52,11 @@ charBuffStringSize(const char (&aCharBuff)[SIZE])
 inline constexpr int
 wcWidth(wchar_t wc)
 {
+#ifdef _MSC_VER
     return mk_wcwidth(wc);
+#else
+    return wcwidth(wc);
+#endif
 }
 
 inline constexpr
@@ -131,14 +137,14 @@ struct StringWCharIt
         {
             if (!p || i < 0 || i >= size)
             {
-GOTO_quit:
+quit:
                 i = NPOS;
                 return {NPOS};
             }
 
             int len = mbrtowc(&wc, &p[i], size - i, &state);
 
-            if (len == -1) goto GOTO_quit;
+            if (len == -1) goto quit;
             else if (len == 0 || len < -1) len = 1;
 
             i += len;
@@ -155,114 +161,6 @@ GOTO_quit:
 
     const It begin() const { return {m_s.data(), 0, m_s.size()}; }
     const It end() const { return {NPOS}; }
-};
-
-/* Grapheme cluster iterator */
-struct StringGraphemeIt
-{
-    const StringView m_sv {};
-
-    StringGraphemeIt(const StringView sv) : m_sv {sv} {};
-
-    /* */
-
-    static constexpr bool
-    isRegional(const wchar_t wc)
-    {
-        return u32(wc) >= 0x1F1E6 && u32(wc) <= 0x1F1FF;
-    }
-
-    /* */
-
-    struct It
-    {
-        const char* m_pStr {};
-        isize m_size {};
-        isize m_i {};
-        isize m_clusterI {};
-        isize m_clusterSize {};
-        mbstate_t m_mbState {};
-
-        /* */
-
-        It(isize _NPOS) : m_i {_NPOS} {}
-        It(const StringView sv) : m_pStr {sv.m_pData}, m_size {sv.m_size} { operator++(); }
-
-        /* */
-
-        const StringView operator*() const { return {const_cast<char*>(&m_pStr[m_clusterI]), m_clusterSize}; }
-
-        It
-        operator++()
-        {
-            if (!m_pStr || m_i >= m_size)
-            {
-                m_i = NPOS;
-                return NPOS;
-            }
-
-            wchar_t wc1;
-            int nBytesDecoded = mbrtowc(&wc1, &m_pStr[m_i], m_size - m_i, &m_mbState);
-            if (nBytesDecoded == -1 || nBytesDecoded == -2)
-            {
-                /* just skip */
-                nBytesDecoded = 1;
-                wc1 = L' ';
-                m_mbState = {};
-            }
-
-            m_clusterI = m_i;
-            m_i += nBytesDecoded;
-
-            if (isRegional(wc1))
-            {
-                mbstate_t mb2 {};
-                wchar_t wc2;
-                int nBytesDecoded2 = mbrtowc(&wc2, &m_pStr[m_i], m_size - m_i, &mb2);
-                if (nBytesDecoded2 > 0 && isRegional(wc2))
-                    m_i += nBytesDecoded2;
-            }
-
-            while (m_i < m_size)
-            {
-                mbstate_t mb2 {};
-                wchar_t wc2;
-                int nBytesDecoded2 = mbrtowc(&wc2, &m_pStr[m_i], m_size - m_i, &mb2);
-                if (nBytesDecoded2 == 0 || nBytesDecoded2 == -1 || nBytesDecoded2 == -2)
-                    break;
-
-                /* zero-width joiner (ZWJ) */
-                if (wc2 == 0x200D)
-                {
-                    m_i += nBytesDecoded2;
-                    mbstate_t mb3 {};
-                    wchar_t wc3;
-                    int nBytesDecoded3 = mbrtowc(&wc3, &m_pStr[m_i], m_size - m_i, &mb3);
-                    if (nBytesDecoded3 > 0)
-                    {
-                        m_i += nBytesDecoded3;
-                        continue;
-                    }
-                    break;
-                }
-
-                if (wcWidth(wc2) != 0)
-                    break;
-                m_i += nBytesDecoded2;
-            }
-
-            m_clusterSize = m_i - m_clusterI;
-            return *this;
-        }
-
-        /* */
-
-        friend bool operator==(const It& l, const It& r) { return l.m_i == r.m_i; }
-        friend bool operator!=(const It& l, const It& r) { return l.m_i != r.m_i; }
-    };
-
-    It begin() { return m_sv; }
-    It end() { return NPOS; }
 };
 
 /* Separated by delimiters String iterator adapter */
@@ -374,73 +272,80 @@ StringView::endsWith(const StringView r) const
 }
 
 inline bool
-operator==(const StringView& l, const StringView& r)
+StringView::operator==(const StringView& r) const noexcept
 {
-    if (l.m_pData == r.m_pData)
+    if (m_pData == r.m_pData)
         return true;
 
-    if (l.m_size != r.m_size)
+    if (m_size != r.m_size)
         return false;
 
-    return strncmp(l.m_pData, r.m_pData, l.m_size) == 0; /* (glibc) strncmp is as fast as handmade SIMD optimized function. */
+    return strncmp(m_pData, r.m_pData, m_size) == 0; /* (glibc) strncmp is as fast as handmade SIMD optimized function. */
 }
 
 inline bool
-operator==(const StringView& l, const char* r)
+StringView::operator==(const char* r) const noexcept
 {
-    auto sr = StringView(r);
-    return l == sr;
+    return *this == StringView(r);
 }
 
 inline bool
-operator!=(const StringView& l, const StringView& r)
+StringView::operator!=(const StringView& r) const noexcept
 {
-    return !(l == r);
+    return !(*this == r);
 }
 
 inline i64
-operator-(const StringView& l, const StringView& r)
+StringView::operator-(const StringView& r) const noexcept
 {
-    if (l.m_size < r.m_size) return -1;
-    else if (l.m_size > r.m_size) return 1;
+    if (m_size < r.m_size) return -1;
+    else if (m_size > r.m_size) return 1;
 
     i64 sum = 0;
-    for (isize i = 0; i < l.m_size; --i)
-        sum += (l.m_pData[i] - r.m_pData[i]);
+    for (isize i = 0; i < m_size; --i)
+        sum += (m_pData[i] - r.m_pData[i]);
 
     return sum;
 }
 
 inline bool
-operator<(const StringView& l, const StringView& r)
+StringView::operator<(const StringView& r) const noexcept
 {
-    const isize len = utils::min(l.m_size, r.m_size);
-    const isize res = strncmp(l.m_pData, r.m_pData, len);
+    const isize len = utils::min(m_size, r.m_size);
+    const isize res = ::strncmp(m_pData, r.m_pData, len);
 
-    if (res == 0) return l.m_size < r.m_size;
+    if (res == 0) return m_size < r.m_size;
     else return res < 0;
 }
 
 inline bool
-operator<=(const StringView& l, const StringView& r)
+StringView::operator<=(const StringView& r) const noexcept
 {
-    return (l.m_size == r.m_size) || (l < r);
+    const isize len = utils::min(m_size, r.m_size);
+    const isize res = ::strncmp(m_pData, r.m_pData, len);
+
+    if (res == 0) return m_size <= r.m_size;
+    else return res < 0;
 }
 
 inline bool
-operator>(const StringView& l, const StringView& r)
+StringView::operator>(const StringView& r) const noexcept
 {
-    const isize len = utils::min(l.m_size, r.m_size);
-    const isize res = ::strncmp(l.m_pData, r.m_pData, len);
+    const isize len = utils::min(m_size, r.m_size);
+    const isize res = ::strncmp(m_pData, r.m_pData, len);
 
-    if (res == 0) return l.m_size > r.m_size;
+    if (res == 0) return m_size > r.m_size;
     else return res > 0;
 }
 
 inline bool
-operator>=(const StringView& l, const StringView& r)
+StringView::operator>=(const StringView& r) const noexcept
 {
-    return (l.m_size == r.m_size) || (l > r);
+    const isize len = utils::min(m_size, r.m_size);
+    const isize res = ::strncmp(m_pData, r.m_pData, len);
+
+    if (res == 0) return m_size >= r.m_size;
+    else return res > 0;
 }
 
 inline constexpr isize
@@ -615,6 +520,13 @@ StringView::subString(isize start, isize size) const noexcept
     return StringView((char*)m_pData + start, size);
 }
 
+inline StringView
+StringView::subString(isize start) const noexcept
+{
+    ADT_ASSERT(start <= m_size, "(out of range) start: {}, size: {}", start, m_size);
+    return subString(start, m_size - start);
+}
+
 template<typename T>
 ADT_NO_UB inline T
 StringView::reinterpret(isize at) const
@@ -742,7 +654,7 @@ String::release() noexcept
 
 template<int SIZE>
 inline
-StringFixed<SIZE>::StringFixed(const StringView svName)
+StringFixed<SIZE>::StringFixed(const StringView svName) noexcept
 {
     /* memcpy doesn't like nullptrs */
     if (!svName.m_pData || svName.m_size <= 0) return;
@@ -755,7 +667,7 @@ StringFixed<SIZE>::StringFixed(const StringView svName)
 template<int SIZE>
 template<int SIZE_B>
 inline
-StringFixed<SIZE>::StringFixed(const StringFixed<SIZE_B> other)
+StringFixed<SIZE>::StringFixed(const StringFixed<SIZE_B> other) noexcept
 {
     const isize size = utils::min(SIZE - 1, SIZE_B);
     memcpy(m_aBuff, other.m_aBuff, size);
@@ -778,14 +690,14 @@ StringFixed<SIZE>::destroy() noexcept
 
 template<int SIZE>
 inline bool
-StringFixed<SIZE>::operator==(const StringFixed<SIZE>& other) const
+StringFixed<SIZE>::operator==(const StringFixed<SIZE>& other) const noexcept
 {
     return StringView(*this) == StringView(other);
 }
 
 template<int SIZE>
 inline bool
-StringFixed<SIZE>::operator==(const StringView sv) const
+StringFixed<SIZE>::operator==(const StringView sv) const noexcept
 {
     return StringView(m_aBuff) == sv;
 }
@@ -793,16 +705,17 @@ StringFixed<SIZE>::operator==(const StringView sv) const
 template<int SIZE>
 template<isize ARRAY_SIZE>
 inline bool
-StringFixed<SIZE>::operator==(const char (&aBuff)[ARRAY_SIZE]) const
+StringFixed<SIZE>::operator==(const char (&aBuff)[ARRAY_SIZE]) const noexcept
 {
     return StringView(*this) == aBuff;
 }
 
-template<int SIZE_L, int SIZE_R>
+template<int SIZE>
+template<int SIZE_R>
 inline bool
-operator==(const StringFixed<SIZE_L>& l, const StringFixed<SIZE_R>& r)
+StringFixed<SIZE>::operator==(const StringFixed<SIZE_R>& r) const noexcept
 {
-    return StringView(l) == StringView(r);
+    return StringView(*this) == StringView(r);
 }
 
 inline String
@@ -821,6 +734,208 @@ StringCat(IAllocator* p, const StringView& l, const StringView& r)
     return sNew;
 }
 
+inline void
+VString::destroy(IAllocator* pAlloc) noexcept
+{
+    if (m_cap >= 17) pAlloc->free(m_pData);
+    m_cap = 16;
+    ::memset(m_aBuff, 0, 16);
+}
+
+inline char*
+VString::data() noexcept
+{
+    if (m_cap <= 16) return m_aBuff;
+    else return m_pData;
+}
+
+inline const char*
+VString::data() const noexcept
+{
+    if (m_cap <= 16) return m_aBuff;
+    else return m_pData;
+}
+
+inline bool
+VString::empty() const noexcept
+{
+    return size() <= 0;
+}
+
+inline isize
+VString::size() const noexcept
+{
+    if (m_cap <= 16) return ::strnlen(m_aBuff, 16);
+    else return m_size;
+}
+
+inline isize
+VString::cap() const noexcept
+{
+    return m_cap;
+}
+
+inline
+VString::VString(IAllocator* pAlloc, const StringView sv)
+{
+    if (sv.m_size <= 15)
+    {
+        ::memcpy(m_aBuff, sv.m_pData, sv.m_size);
+        m_aBuff[sv.m_size] = '\0';
+    }
+    else
+    {
+        m_pData = pAlloc->mallocV<char>(sv.m_size + 1);
+        ::memcpy(m_pData, sv.m_pData, sv.m_size);
+        m_pData[sv.m_size] = '\0';
+        m_cap = sv.m_size + 1;
+        m_size = sv.m_size;
+    }
+}
+
+inline isize
+VString::push(IAllocator* pAlloc, char c)
+{
+    ADT_ASSERT(m_cap >= 16, "{}", m_cap);
+    if (m_cap == 16)
+    {
+        const isize firstSize = ::strnlen(m_aBuff, 16);
+        if (firstSize + 1 >= 16)
+        {
+            const isize newCap = m_cap * 2;
+            char* pNew = pAlloc->zallocV<char>(newCap);
+            ::memcpy(pNew, m_aBuff, firstSize);
+            pNew[firstSize] = c;
+
+            m_pData = pNew;
+            m_size = firstSize + 1;
+            m_cap = newCap;
+
+            return firstSize;
+        }
+
+        m_aBuff[firstSize] = c;
+        return firstSize;
+    }
+    else
+    {
+        ADT_ASSERT(m_cap > 16, "{}", m_cap);
+
+        if (m_size >= m_cap) grow(pAlloc, (m_cap+1) * 2);
+
+        m_pData[m_size++] = c;
+        return m_size - 1;
+    }
+}
+
+inline isize
+VString::push(IAllocator* pAlloc, const StringView sv)
+{
+    ADT_ASSERT(m_cap >= 16, "{}", m_cap);
+    if (m_cap == 16)
+    {
+        const isize firstSize = ::strnlen(m_aBuff, 16);
+        if (sv.m_size + firstSize + 1 > 16)
+        {
+            const isize newCap = (sv.m_size + firstSize + 1) * 2;
+            char* pNew = pAlloc->zallocV<char>(newCap);
+            ::memcpy(pNew, m_aBuff, firstSize);
+            ::memcpy(pNew + firstSize, sv.m_pData, sv.m_size);
+
+            m_pData = pNew;
+            m_size = firstSize + sv.m_size;
+            m_cap = newCap;
+
+            return firstSize;
+        }
+        else
+        {
+            ::memcpy(m_aBuff + firstSize, sv.m_pData, sv.m_size);
+            return firstSize;
+        }
+    }
+    else
+    {
+        ADT_ASSERT(m_cap > 16, "{}", m_cap);
+
+        if (m_size + sv.m_size >= m_cap)
+            grow(pAlloc, 2 * (m_cap + sv.m_size));
+
+        ::memcpy(m_pData + m_size, sv.m_pData, sv.m_size);
+        const isize ret = m_size;
+        m_size += sv.m_size;
+        return ret;
+    }
+}
+
+inline void
+VString::reallocWith(IAllocator* pAlloc, const StringView sv)
+{
+    ADT_ASSERT(m_cap >= 16, "{}", m_cap);
+
+    if (m_cap <= 16)
+    {
+        if (sv.m_size > 15)
+        {
+            const isize newCap = sv.m_size + 1;
+            char* pNew = pAlloc->mallocV<char>(newCap);
+            ::memcpy(pNew, sv.m_pData, sv.m_size);
+            pNew[sv.m_size] = '\0';
+            m_pData = pNew;
+            m_size = sv.m_size;
+            m_cap = newCap;
+
+            return;
+        }
+
+        ::memcpy(m_aBuff, sv.m_pData, sv.m_size);
+        m_aBuff[sv.m_size] = '\0';
+    }
+    else
+    {
+        if (sv.m_size + 1 > m_cap) grow(pAlloc, (sv.m_size+1) * 2);
+        ::memcpy(m_pData, sv.m_pData, sv.m_size);
+        m_pData[sv.m_size] = '\0';
+        m_size = sv.m_size;
+    }
+}
+
+inline void
+VString::removeNLEnd(bool bDestructive) noexcept
+{
+    ADT_ASSERT(m_cap >= 16, "{}", m_cap);
+
+    isize size;
+    char* pData;
+
+    if (m_cap <= 16)
+    {
+        size = ::strnlen(m_aBuff, 16);
+        pData = m_aBuff;
+    }
+    else
+    {
+        pData = m_pData;
+        size = m_size;
+    }
+
+    while (size > 0 && (pData[size - 1] == '\n' || pData[size - 1] == '\r'))
+    {
+        if (bDestructive) pData[size - 1] = '\0';
+        --size;
+    }
+
+    if (m_cap > 16) m_size = size;
+}
+
+inline void
+VString::grow(IAllocator* pAlloc, isize newCap)
+{
+    ADT_ASSERT(m_cap >= 17, "{}", m_cap);
+    m_pData = pAlloc->reallocV<char>(m_pData, m_size, newCap);
+    m_cap = newCap;
+}
+
 namespace utils
 {
 
@@ -830,8 +945,16 @@ compare(const StringView& l, const StringView& r)
     const isize minLen = l.m_size < r.m_size ? l.m_size : r.m_size;
     const isize res = ::strncmp(l.m_pData, r.m_pData, minLen);
 
-    if (res == 0) return l.m_size > r.m_size;
-    else return res;
+    if (res == 0)
+    {
+        if (l.m_size == r.m_size) return 0;
+        else if (l.m_size < r.m_size) return -1;
+        else return 1;
+    }
+    else
+    {
+        return res;
+    }
 }
 
 [[nodiscard]] inline isize
@@ -840,8 +963,16 @@ compareRev(const StringView& l, const StringView& r)
     const isize minLen = l.m_size < r.m_size ? l.m_size : r.m_size;
     const isize res = ::strncmp(r.m_pData, l.m_pData, minLen);
 
-    if (res == 0) return r.m_size > l.m_size;
-    else return res;
+    if (res == 0)
+    {
+        if (r.m_size == l.m_size) return 0;
+        else if (r.m_size < l.m_size) return -1;
+        else return 1;
+    }
+    else
+    {
+        return res;
+    }
 }
 
 } /* namespace utils */

@@ -2,23 +2,6 @@
 
 #if __has_include(<unistd.h>)
     #include <unistd.h>
-#elif _WIN32
-    #ifndef WIN32_LEAN_AND_MEAN
-        #define WIN32_LEAN_AND_MEAN 1
-    #endif
-    #ifndef NOMINMAX
-        #define NOMINMAX
-    #endif
-    #include <windows.h>
-    #undef near
-    #undef far
-    #undef NEAR
-    #undef FAR
-    #undef min
-    #undef max
-    #undef MIN
-    #undef MAX
-    #include <sysinfoapi.h>
 #endif
 
 #include "Pair.hh"
@@ -26,13 +9,14 @@
 
 #include <cstring>
 #include <utility>
+#include <ctime>
 
 namespace adt::utils
 {
 
 template<typename T, typename ...ARGS>
 inline void
-moveDestruct(T* pVal, ARGS&&... args)
+destructiveMove(T* pVal, ARGS&&... args)
 {
     T tmp = T (std::forward<ARGS>(args)...);
     new(pVal) T (std::move(tmp));
@@ -81,18 +65,6 @@ exchange(A* pObj, B&& replaceObjWith)
     auto ret = std::move(*pObj);
     *pObj = std::move(replaceObjWith);
     return ret;
-}
-
-inline constexpr void
-toggle(auto* x)
-{
-    *x = !*x;
-}
-
-inline constexpr void
-negate(auto* x)
-{
-    *x = -(*x);
 }
 
 template<typename T>
@@ -298,6 +270,7 @@ template<typename T> requires(std::is_integral_v<T>)
 [[nodiscard]] inline T
 cycleForward(const T& idx, isize size)
 {
+    ADT_ASSERT(size > 0, "size: {}", size);
     return (idx + 1) % size;
 }
 
@@ -305,6 +278,7 @@ template<typename T> requires(std::is_integral_v<T>)
 [[nodiscard]] inline T
 cycleBackward(const T& idx, isize size)
 {
+    ADT_ASSERT(size > 0, "size: {}", size);
     return (idx + (size - 1)) % size;
 }
 
@@ -312,8 +286,7 @@ template<typename T> requires(std::is_integral_v<T>)
 [[nodiscard]] inline T
 cycleForwardPowerOf2(const T& i, isize size)
 {
-    ADT_ASSERT(isPowerOf2(size), "size: {}", size);
-
+    ADT_ASSERT(isPowerOf2(size) && size > 0, "size: {}", size);
     return (i + 1) & (size - 1);
 }
 
@@ -321,9 +294,21 @@ template<typename T> requires(std::is_integral_v<T>)
 [[nodiscard]] inline T
 cycleBackwardPowerOf2(const T& i, isize size)
 {
-    ADT_ASSERT(isPowerOf2(size), "size: {}", size);
-
+    ADT_ASSERT(isPowerOf2(size) && size > 0, "size: {}", size);
     return (i - 1) & (size - 1);
+}
+
+inline constexpr void
+addNSToTimespec(timespec* const pTs, const isize nsec)
+{
+    constexpr isize nSecMax = 1000000000;
+    /* overflow check */
+    if (pTs->tv_nsec + nsec >= nSecMax)
+    {
+        pTs->tv_sec += 1;
+        pTs->tv_nsec = (pTs->tv_nsec + nsec) - nSecMax;
+    }
+    else pTs->tv_nsec += nsec;
 }
 
 } /* namespace adt::utils */
