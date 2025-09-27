@@ -4,6 +4,11 @@ using namespace adt;
 
 struct Window : platform::ansi::Win
 {
+    int m_x {};
+    int m_y {};
+
+    /* */
+
     using Base = platform::ansi::Win;
 
     /* */
@@ -40,6 +45,8 @@ Window::update()
         );
     }
 
+    m_textBuff.string(m_x, m_y, STYLE::BOLD | STYLE::RED | STYLE::UNDERLINE, "@");
+
     m_textBuff.present();
 }
 
@@ -51,8 +58,14 @@ Window::procEvents()
     switch (in.eType)
     {
         case Input::TYPE::KB:
-        if (in.key == L'q' || in.key == L'Q')
-            m_bRunning = false;
+        {
+            if (in.key == L'q' || in.key == L'Q')
+                m_bRunning = false;
+            else if (in.key == 'h') m_x = utils::max(0, m_x - 1);
+            else if (in.key == 'l') m_x = utils::min(m_termSize.width - 1, m_x + 1);
+            else if (in.key == 'k') m_y = utils::max(0, m_y - 1);
+            else if (in.key == 'j') m_y = utils::min(m_termSize.height - 1, m_y + 1);
+        }
         break;
 
         case Input::TYPE::MOUSE:
